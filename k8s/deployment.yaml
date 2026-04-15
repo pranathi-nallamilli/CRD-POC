@@ -30,7 +30,7 @@ spec:
     spec:
       containers:
       - name: java-app
-        image: docker.io/pranathinallamilli/java-demo-app:main-229da2e8305a1eca65abd95772f0e392d1f03eab
+        image: docker.io/pranathinallamilli/java-demo-app:main-197e806c86ae9e1e37c002ef7c78476a5532ec9c
         imagePullPolicy: Always
         ports:
         - name: http
