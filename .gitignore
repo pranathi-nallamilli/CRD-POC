@@ -1,0 +1,19 @@
+# Maven
+target/
+*.jar
+*.war
+*.ear
+*.class
+
+# IDE
+.idea/
+.vscode/
+*.iml
+.DS_Store
+
+# Credentials (DO NOT COMMIT!)
+CREDENTIALS-TEMP.md
+*credentials*
+*secret*
+*.pem
+*.key

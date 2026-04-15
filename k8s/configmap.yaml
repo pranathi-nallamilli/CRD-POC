@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: java-demo-app-config
+  namespace: default
+  labels:
+    app: java-demo-app
+data:
+  # Application configuration
+  application.properties: |
+    server.port=8080
+    spring.application.name=demo-app
+    
+    # Logging configuration
+    logging.level.root=INFO
+    logging.level.com.example.demo=DEBUG
+    
+    # Actuator endpoints
+    management.endpoints.web.exposure.include=health,info,metrics,prometheus
+    management.endpoint.health.show-details=always
+  
+  # Additional configuration
+  APP_ENV: "production"
+  LOG_LEVEL: "INFO"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: java-demo-app-secret
+  namespace: default
+  labels:
+    app: java-demo-app
+type: Opaque
+data:
+  # Base64 encoded secrets
+  # Example: echo -n 'mypassword' | base64
+  database-password: bXlwYXNzd29yZA==
+  api-key: bXktc2VjcmV0LWFwaS1rZXk=
