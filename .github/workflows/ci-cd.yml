@@ -3,8 +3,15 @@ name: Java CI/CD Pipeline with ArgoCD
 on:
   push:
     branches: [ main ]
+    paths-ignore:
+      - 'k8s/deployment.yaml'  # Don't trigger on deployment updates
   pull_request:
     branches: [ main ]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
 
 env:
   # Docker image configuration
