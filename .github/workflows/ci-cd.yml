@@ -54,7 +54,7 @@ jobs:
 
   # Job 2: Build and Push Docker Image
   build-and-push-image:
-    name: Build and Push Docker Image
+    name: Build and Push Docker Image 
     runs-on: ubuntu-latest
     needs: build-and-test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -121,8 +121,9 @@ jobs:
       
       - name: Update image tag in deployment manifest
         run: |
-          # Extract the new image with SHA tag
-          NEW_IMAGE="${{ env.DOCKER_REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/java-demo-app:main-${{ github.sha }}"
+          # Extract the new image with SHORT SHA tag (matching Docker Hub tag format)
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          NEW_IMAGE="${{ env.DOCKER_REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/java-demo-app:main-${SHORT_SHA}"
           
           echo "Updating deployment.yaml with new image: ${NEW_IMAGE}"
           
@@ -143,7 +144,8 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "Update java-demo-app image to main-${{ github.sha }}"
+            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            git commit -m "Update java-demo-app image to main-${SHORT_SHA}"
             git push origin main
           fi
       
@@ -151,11 +153,12 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const shortSha = '${{ github.sha }}'.substring(0, 7);
             github.rest.repos.createCommitComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               commit_sha: context.sha,
-              body: `🚀 Docker image built and pushed successfully!\n\n**Image:** \`${{ env.DOCKER_REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/java-demo-app:main-${{ github.sha }}\`\n\nArgoCD will deploy this to Kubernetes cluster automatically.`
+              body: `🚀 Docker image built and pushed successfully!\n\n**Image:** \`${{ env.DOCKER_REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/java-demo-app:main-${shortSha}\`\n\nArgoCD will deploy this to Kubernetes cluster automatically.`
             })
 
   # Job 4: Notify on completion
