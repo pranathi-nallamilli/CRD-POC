@@ -20,7 +20,7 @@ public class DemoApplication {
     @GetMapping("/")
     public Map<String, String> home() {
         Map<String, String> response = new HashMap<>();
-        response.put("message", "Hello from Java Spring Boot!");
+        response.put("message", "🚀 LIVE DEMO - Complete GitOps Automation Working!");
         response.put("timestamp", LocalDateTime.now().toString());
         response.put("version", "1.0.0");
         return response;
