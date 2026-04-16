@@ -1,0 +1,44 @@
+# kind cluster configuration for Java Demo App + ArgoCD
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: java-demo-cluster
+
+# Multi-node cluster (more production-like than Minikube)
+nodes:
+  # Control plane node
+  - role: control-plane
+    image: kindest/node:v1.31.0
+    extraPortMappings:
+      # Map port 30080 on host to 30080 on node (NodePort)
+      - containerPort: 30080
+        hostPort: 30080
+        protocol: TCP
+      # Map port 30443 for ArgoCD
+      - containerPort: 30443
+        hostPort: 30443
+        protocol: TCP
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+  
+  # Worker node 1
+  - role: worker
+    image: kindest/node:v1.31.0
+  
+  # Worker node 2  
+  - role: worker
+    image: kindest/node:v1.31.0
+
+# Networking configuration
+networking:
+  # Disable default CNI, we'll use kindnet (faster than Minikube's)
+  disableDefaultCNI: false
+  podSubnet: "10.244.0.0/16"
+  serviceSubnet: "10.96.0.0/12"
+
+# Feature gates
+featureGates:
+  "InPlacePodVerticalScaling": true

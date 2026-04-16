@@ -1,0 +1,40 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: java-demo-app
+  namespace: argocd
+spec:
+  project: default
+  
+  source:
+    repoURL: https://github.com/pranathi-nallamilli/CRD-POC.git
+    targetRevision: HEAD
+    path: k8s
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: java-app
+  
+  syncPolicy:
+    automated:
+      prune: true          # Delete resources when removed from Git
+      selfHeal: true       # Auto-correct manual changes
+      allowEmpty: false
+    syncOptions:
+    - CreateNamespace=true
+    - PrunePropagationPolicy=foreground
+    - PruneLast=true
+    
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  
+  # Ignore differences
+  ignoreDifferences:
+  - group: apps
+    kind: Deployment
+    jsonPointers:
+    - /spec/replicas
