@@ -32,7 +32,7 @@ class DemoApplicationTests {
         
         assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
         assertThat(response.getBody()).containsKey("message");
-        assertThat(response.getBody().get("message")).isEqualTo("Hello from Java Spring Boot!");
+        assertThat(response.getBody().get("message")).isEqualTo("🚀 LIVE DEMO - Complete GitOps Automation Working!");
     }
 
     @Test
