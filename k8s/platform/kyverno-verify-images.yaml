@@ -1,0 +1,25 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-cosign-signatures
+spec:
+  validationFailureAction: Enforce
+  background: false
+  rules:
+    - name: verify-image-signature
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      verifyImages:
+        - imageReferences:
+            - "docker.io/pranathinallamilli/java-demo-app:*"
+          attestors:
+            - entries:
+                - keys:
+                    publicKeys: |
+                      -----BEGIN PUBLIC KEY-----
+                      MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEfSlrOWJhsOUTGDliURCh2hIGGLlT
+                      RCG9olKgiRrHKjH6muJzyYIpDmniYEJGUxVNeDxWZVIOgBHoPRR7ULuzNw==
+                      -----END PUBLIC KEY-----

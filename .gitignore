@@ -17,3 +17,4 @@ CREDENTIALS-TEMP.md
 *secret*
 *.pem
 *.key
+cosign-keys/
