@@ -1,0 +1,4 @@
+REVIEWBOARD_URL = "http://localhost:8083"
+REPOSITORY = "CRD-POC"
+BRANCH = "main"
+TRACKING_BRANCH = "origin/main"

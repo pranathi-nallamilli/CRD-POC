@@ -2,7 +2,7 @@ name: Java CI/CD Pipeline with ArgoCD
 
 on:
   push:
-    branches: [ main ]
+    branches: [ disabled-old-approach ]  # Disabled - using ci-cd-signed.yml (Approach 2)
     paths-ignore:
       - 'k8s/deployment.yaml'  # Don't trigger on deployment updates
   pull_request:
