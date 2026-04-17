@@ -32,7 +32,7 @@ class DemoApplicationTests {
         
         assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
         assertThat(response.getBody()).containsKey("message");
-        assertThat(response.getBody().get("message")).isEqualTo("🔍 Review Board + CI/CD Integration - Code Reviewed and Approved!");
+        assertThat(response.getBody().get("message")).isEqualTo("� Final Demo - Review Board + CI/CD Pipeline Verified!");
     }
 
     @Test
