@@ -8,4 +8,4 @@ resources:
 
 images:
   - name: docker.io/pranathinallamilli/java-demo-app
-    newTag: main-123a8b4
+    newTag: latest
