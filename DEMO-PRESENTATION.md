@@ -332,7 +332,7 @@ Result: Even if Docker Hub is compromised, unsigned images
 | Benefit | Explanation |
 |---|---|
 | **No GIT_TOKEN needed** | Pipeline doesn't write to Git; eliminates a security secret |
-| **No infinite loop risk** | Pipeline never modifies manifests; no `paths-ignore` needed |
+| **No infinite loop risk** | Pipeline never modifies manifests |
 | **Separation of concerns** | CI builds images, ArgoCD handles deployment entirely |
 | **Image verification** | Cosign ensures only YOUR pipeline's images can be deployed |
 | **Admission control** | Kyverno blocks all unsigned/untrusted images at the K8s API level |
