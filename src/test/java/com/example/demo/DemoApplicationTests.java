@@ -32,7 +32,7 @@ class DemoApplicationTests {
         
         assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
         assertThat(response.getBody()).containsKey("message");
-        assertThat(response.getBody().get("message")).isEqualTo("🎯 Auto-Sync Testing with ArgoCD Image Updater - No Manual Steps!");
+        assertThat(response.getBody().get("message")).isEqualTo("🚀 Live Demo - Fully Automated CI/CD Pipeline!");
     }
 
     @Test
