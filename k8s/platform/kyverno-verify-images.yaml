@@ -17,6 +17,11 @@ spec:
             - "docker.io/pranathinallamilli/java-demo-app:*"
           mutateDigest: false
           verifyDigest: false
+          imageRegistryCredentials:
+            secrets:
+              - docker-hub-creds
+              - docker-hub-creds-v2
+            allowInsecureRegistry: false
           attestors:
             - entries:
                 - keys:
