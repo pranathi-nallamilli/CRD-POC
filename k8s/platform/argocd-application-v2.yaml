@@ -8,6 +8,7 @@ metadata:
     argocd-image-updater.argoproj.io/image-list: app=docker.io/pranathinallamilli/java-demo-app
     argocd-image-updater.argoproj.io/app.update-strategy: newest-build
     argocd-image-updater.argoproj.io/app.allow-tags: regexp:^main-[a-f0-9]{7}$
+    argocd-image-updater.argoproj.io/app.pull-secret: pullsecret:argocd/dockerhub-creds
     argocd-image-updater.argoproj.io/write-back-method: git
 spec:
   project: default
