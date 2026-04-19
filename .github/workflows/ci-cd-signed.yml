@@ -4,7 +4,8 @@ on:
   push:
     branches: [ main ]
     paths-ignore:
-      - 'k8s/.argocd-source*'    # Ignore Image Updater commits (prevents infinite loop)
+      - 'k8s/**'                 # Ignore all k8s config changes (prevents unnecessary builds)
+      - '*.md'                   # Ignore documentation changes
   pull_request:
     branches: [ main ]
 
