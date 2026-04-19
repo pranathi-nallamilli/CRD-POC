@@ -20,7 +20,7 @@ public class DemoApplication {
     @GetMapping("/")
     public Map<String, String> home() {
         Map<String, String> response = new HashMap<>();
-        response.put("message", "🚀 Live Demo - Fully Automated CI/CD Pipeline!!");
+        response.put("message", "🎯 Auto-Sync Testing with ArgoCD Image Updater - No Manual Steps!");
         response.put("timestamp", LocalDateTime.now().toString());
         response.put("version", "1.0.0");
         return response;
