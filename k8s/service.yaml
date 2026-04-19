@@ -5,10 +5,8 @@ metadata:
   namespace: default
   labels:
     app: java-demo-app
-  annotations:
-    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"  # For AWS
 spec:
-  type: ClusterIP  # Change to LoadBalancer or NodePort if needed
+  type: ClusterIP
   selector:
     app: java-demo-app
   ports:

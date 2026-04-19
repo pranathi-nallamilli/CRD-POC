@@ -289,7 +289,7 @@ def generate_approach2():
     draw_rounded_box(ax, 8.5, -0.6, 2.5, 0.9, COLORS['pod_green'], 'Pod 3', 'Verified', 10, 8)
     
     # Service
-    draw_rounded_box(ax, 11.5, -0.6, 2.5, 0.9, COLORS['service'], 'Service', 'LoadBalancer', 9, 7)
+    draw_rounded_box(ax, 11.5, -0.6, 2.5, 0.9, COLORS['service'], 'Service', 'ClusterIP', 9, 7)
 
     # ─── Security Layers Box ───
     sec_bg = FancyBboxPatch((0.5, -1.95), 14, 0.35, boxstyle="round,pad=0.02",
@@ -592,7 +592,7 @@ def build_docx(img1, img2, img3):
     # ─── Security Architecture ───
     doc.add_heading('Security Architecture: 5 Layers of Protection', level=1)
     layers = [
-        ('Layer 1: Build', 'Trivy', 'Scans image for CVEs — fails pipeline on CRITICAL/HIGH (exit-code: 1)', 'During CI pipeline'),
+        ('Layer 1: Build', 'Trivy', 'Scans image for CVEs — fails pipeline on CRITICAL/HIGH (exit-code: 1)', 'During CI (after push, before sign)'),
         ('Layer 2: Sign', 'Cosign', 'Creates cryptographic signature', 'After Docker push'),
         ('Layer 3: Registry', 'Docker Hub IAM', 'Controls who can push/pull', 'Always'),
         ('Layer 4: Verify', 'Kyverno', 'Rejects unsigned images at K8s API', 'Before pod creation'),
@@ -642,14 +642,205 @@ def build_docx(img1, img2, img3):
 
     doc.add_paragraph()
 
-    # ─── One-Time Setup ───
-    doc.add_heading('One-Time Setup Per Cluster', level=1)
+    # ─── Why Trivy After Docker Push ───
+    doc.add_heading('Why Is Trivy Scan After Docker Push?', level=1)
     doc.add_paragraph(
-        'All the setup (ArgoCD, Image Updater, Kyverno, Cosign, repo credentials) is one-time per cluster. '
-        'Same steps apply to EKS/AKS/GKE. After that, every new deployment is just a git push.'
+        'This is a deliberate design choice. docker buildx builds multi-architecture images (AMD64 + ARM64) '
+        'and pushes directly to the registry — there is no local image to scan. Trivy needs the final '
+        'multi-arch manifest on the registry to scan accurately.'
+    )
+    doc.add_paragraph(
+        'The safety net: If Trivy finds CRITICAL/HIGH CVEs → pipeline fails → image is NEVER signed → '
+        'Kyverno BLOCKS it from deploying. So even though the image is on Docker Hub, it can never reach your pods.'
+    )
+    trivy_flow = [
+        ('Step', 'Action', 'What Happens on Failure'),
+        ('1. Build & Push', 'docker buildx builds multi-arch image, pushes to Docker Hub', 'Pipeline fails — no image published'),
+        ('2. Trivy Scan', 'Scans pushed image for CRITICAL/HIGH CVEs', 'Pipeline fails — image stays UNSIGNED'),
+        ('3. Cosign Sign', 'Signs image with private key', 'Without signature, Kyverno blocks deployment'),
+    ]
+    table = doc.add_table(rows=len(trivy_flow), cols=3, style='Light Shading Accent 1')
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    for i, row_data in enumerate(trivy_flow):
+        for j, cell_text in enumerate(row_data):
+            table.rows[i].cells[j].text = cell_text
+            if i == 0:
+                for paragraph in table.rows[i].cells[j].paragraphs:
+                    for run in paragraph.runs:
+                        run.bold = True
+
+    doc.add_page_break()
+
+    # ─── One-Time Setup ───
+    doc.add_heading('One-Time Cluster Setup (Complete Commands)', level=1)
+    doc.add_paragraph(
+        'All the setup below is one-time per cluster. Same steps apply to EKS/AKS/GKE. '
+        'After this, every new deployment is just a git push.'
     )
 
+    # Step 1: Create Cluster
+    doc.add_heading('Step 1: Create the Cluster', level=2)
+    p = doc.add_paragraph()
+    run = p.add_run(
+        'export KIND_EXPERIMENTAL_PROVIDER=podman\n'
+        'kind create cluster --name java-demo-cluster --config kind-cluster-config.yaml\n'
+        'kubectl get nodes\n'
+        '# Expected: 3 nodes (1 control-plane + 2 workers)'
+    )
+    run.font.name = 'Consolas'
+    run.font.size = Pt(9)
+
+    # Step 2: Install ArgoCD
+    doc.add_heading('Step 2: Install ArgoCD', level=2)
+    p = doc.add_paragraph()
+    run = p.add_run(
+        'kubectl create namespace argocd\n'
+        'kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml\n'
+        'kubectl wait --for=condition=available --timeout=300s deployment/argocd-server -n argocd\n'
+        '# Get admin password:\n'
+        'kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath="{.data.password}" | base64 -d'
+    )
+    run.font.name = 'Consolas'
+    run.font.size = Pt(9)
+
+    # Step 3: Install Image Updater
+    doc.add_heading('Step 3: Install ArgoCD Image Updater', level=2)
+    p = doc.add_paragraph()
+    run = p.add_run(
+        'kubectl apply -n argocd \\\n'
+        '  -f https://raw.githubusercontent.com/argoproj-labs/argocd-image-updater/v0.14.0/manifests/install.yaml\n'
+        'kubectl get pods -n argocd -l app.kubernetes.io/name=argocd-image-updater'
+    )
+    run.font.name = 'Consolas'
+    run.font.size = Pt(9)
+
+    # Step 4: Install Kyverno
+    doc.add_heading('Step 4: Install Kyverno', level=2)
+    p = doc.add_paragraph()
+    run = p.add_run(
+        'kubectl create -f https://github.com/kyverno/kyverno/releases/download/v1.12.0/install.yaml\n'
+        'kubectl wait --for=condition=available --timeout=300s deployment/kyverno-admission-controller -n kyverno'
+    )
+    run.font.name = 'Consolas'
+    run.font.size = Pt(9)
+
+    # Step 5: Cosign Keys
+    doc.add_heading('Step 5: Generate Cosign Key Pair', level=2)
+    p = doc.add_paragraph()
+    run = p.add_run(
+        'cosign generate-key-pair\n'
+        '# Creates: cosign.key (PRIVATE → GitHub Secrets) and cosign.pub (PUBLIC → Kyverno policy)'
+    )
+    run.font.name = 'Consolas'
+    run.font.size = Pt(9)
+
+    # Step 6: Create Secrets
+    doc.add_heading('Step 6: Create All Credential Secrets', level=2)
+    doc.add_paragraph('ArgoCD namespace (for Image Updater):')
+    p = doc.add_paragraph()
+    run = p.add_run(
+        '# Git repo credentials (for Image Updater git write-back)\n'
+        'kubectl create secret generic repo-crd-poc -n argocd \\\n'
+        '  --from-literal=type=git \\\n'
+        '  --from-literal=url=https://github.com/<org>/<repo>.git \\\n'
+        '  --from-literal=username=<github-user> \\\n'
+        '  --from-literal=password=<github-pat>\n'
+        'kubectl label secret repo-crd-poc -n argocd argocd.argoproj.io/secret-type=repository\n'
+        '\n'
+        '# Docker Hub credentials (for Image Updater to poll tags)\n'
+        'kubectl create secret docker-registry dockerhub-creds -n argocd \\\n'
+        '  --docker-server=https://registry-1.docker.io \\\n'
+        '  --docker-username=<docker-user> \\\n'
+        '  --docker-password=<docker-password>'
+    )
+    run.font.name = 'Consolas'
+    run.font.size = Pt(9)
+
+    doc.add_paragraph('Kyverno namespace (for signature verification):')
+    p = doc.add_paragraph()
+    run = p.add_run(
+        '# Two secrets needed (Docker Hub uses two registry URLs)\n'
+        'kubectl create secret docker-registry docker-hub-creds -n kyverno \\\n'
+        '  --docker-server=https://index.docker.io/v1/ \\\n'
+        '  --docker-username=<docker-user> --docker-password=<docker-password>\n'
+        'kubectl annotate secret docker-hub-creds -n kyverno kyverno.io/docker-config=true\n'
+        '\n'
+        'kubectl create secret docker-registry docker-hub-creds-v2 -n kyverno \\\n'
+        '  --docker-server=https://registry-1.docker.io \\\n'
+        '  --docker-username=<docker-user> --docker-password=<docker-password>\n'
+        'kubectl annotate secret docker-hub-creds-v2 -n kyverno kyverno.io/docker-config=true'
+    )
+    run.font.name = 'Consolas'
+    run.font.size = Pt(9)
+
+    doc.add_paragraph('GitHub Secrets (in GitHub UI → Settings → Secrets → Actions):')
+    gh_secrets = [
+        ('Secret', 'Value'),
+        ('DOCKER_USERNAME', 'Docker Hub username'),
+        ('DOCKER_PASSWORD', 'Docker Hub access token'),
+        ('COSIGN_PRIVATE_KEY', 'Contents of cosign.key file'),
+        ('COSIGN_PASSWORD', 'Cosign key password'),
+    ]
+    table = doc.add_table(rows=len(gh_secrets), cols=2, style='Light Shading Accent 1')
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    for i, row_data in enumerate(gh_secrets):
+        for j, cell_text in enumerate(row_data):
+            table.rows[i].cells[j].text = cell_text
+            if i == 0:
+                for paragraph in table.rows[i].cells[j].paragraphs:
+                    for run in paragraph.runs:
+                        run.bold = True
+
+    # Step 7: Deploy
+    doc.add_heading('Step 7: Deploy the Application', level=2)
+    p = doc.add_paragraph()
+    run = p.add_run(
+        'kubectl apply -f k8s/platform/kyverno-verify-images.yaml    # Signature verification policy\n'
+        'kubectl apply -f k8s/platform/argocd-application-v2.yaml    # ArgoCD app with Image Updater annotations'
+    )
+    run.font.name = 'Consolas'
+    run.font.size = Pt(9)
+
+    # Step 8: Verify
+    doc.add_heading('Step 8: Verify the Setup', level=2)
+    p = doc.add_paragraph()
+    run = p.add_run(
+        'kubectl get pods -n argocd        # ArgoCD + Image Updater\n'
+        'kubectl get pods -n kyverno       # Kyverno\n'
+        'kubectl get pods -n default       # App (3 replicas)\n'
+        'kubectl port-forward svc/java-demo-app 8083:80 -n default &\n'
+        'curl http://localhost:8083/'
+    )
+    run.font.name = 'Consolas'
+    run.font.size = Pt(9)
+
+    # Setup summary table
     doc.add_paragraph()
+    setup_summary = [
+        ('Component', 'Namespace', 'Purpose'),
+        ('ArgoCD v3.3.6', 'argocd', 'GitOps controller — syncs K8s manifests from Git'),
+        ('Image Updater v0.14.0', 'argocd', 'Watches Docker Hub → commits new tags to Git'),
+        ('Kyverno v1.12.0', 'kyverno', 'Admission controller — blocks unsigned images'),
+        ('Cosign keys', 'GitHub Secrets + Kyverno', 'Signs images in CI, verifies in cluster'),
+        ('App (3 replicas)', 'default', 'Spring Boot API with ClusterIP service'),
+    ]
+    table = doc.add_table(rows=len(setup_summary), cols=3, style='Light Shading Accent 1')
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    for i, row_data in enumerate(setup_summary):
+        for j, cell_text in enumerate(row_data):
+            table.rows[i].cells[j].text = cell_text
+            if i == 0:
+                for paragraph in table.rows[i].cells[j].paragraphs:
+                    for run in paragraph.runs:
+                        run.bold = True
+
+    doc.add_paragraph()
+    p = doc.add_paragraph()
+    run = p.add_run('After this one-time setup, every new deployment is just: git push')
+    run.bold = True
+    run.font.color.rgb = RGBColor(0x2E, 0x7D, 0x32)
+
+    doc.add_page_break()
 
     # ─── Summary ───
     doc.add_heading('Summary', level=1)

@@ -282,8 +282,8 @@ kubectl port-forward -n argocd service/argocd-server 8443:443
 │  │ Verified✓│   │ Verified✓│   │ Verified✓│               │
 │  └──────────┘   └──────────┘   └──────────┘               │ 
 │              ┌────────────────────┐                       │
-│              │ Service (LoadBalancer)│                    │
-│              │  Public URL        │                       │
+│              │ Service (ClusterIP)│                       │
+│              │  Port: 80 → 8080  │                       │
 │              └────────────────────┘                       │
 └───────────────────────────────────────────────────────────┘
 ```
@@ -430,15 +430,22 @@ kustomize:
 
 ### Fully Automated Deployment — Approach 2 (Verified Working)
 
-**Verified end-to-end on kind cluster:**
+**Verified end-to-end on kind cluster (v4.0 and v5.0 tests):**
 1. `git push` → GitHub Actions ran **2 jobs** (Build+Test → Docker+Sign)
-2. Cosign signed image `main-577ac0f` — verified with `cosign verify`
+2. Cosign signed image `main-831127c` (v5.0) — signature stored on Docker Hub as `.sig` artifact
 3. Image Updater detected new tag on Docker Hub → committed `.argocd-source-java-demo-app.yaml` to Git
-4. ArgoCD synced → Kubernetes deployed 3 pods with signed image
-5. Kyverno **BLOCKED** unsigned image `main-26ef708` → `"no signatures found"`
-6. Kyverno **ALLOWED** signed image `main-577ac0f` → pod runs ✅
-7. `curl http://localhost:8083/` → returned app response
+4. ArgoCD auto-synced → Kubernetes deployed 3 pods with signed image
+5. Kyverno **BLOCKED** unsigned images → `"no signatures found"`
+6. Kyverno **ALLOWED** signed images → pods run ✅
+7. `curl http://localhost:8083/` → `{"message":"Zero Touch Deployment - v5.0!","version":"5.0.0"}`
 8. **Zero manual intervention after git push!**
+
+**Issues Encountered & Fixed:**
+- **Infinite loop**: Pipeline triggered by Image Updater's Git commit → Fixed with `paths-ignore: k8s/**`
+- **OutOfSync**: Kyverno mutated image digest causing constant drift → Fixed with `mutateDigest: false`
+- **Docker Hub rate limit**: Kyverno couldn't verify signatures → Fixed with `imageRegistryCredentials` secrets
+- **Image Updater unauthenticated**: Docker Hub pull rate limit → Fixed with `pull-secret` annotation
+- **Stale tags confusing Image Updater**: Old tags matched pattern → Cleaned up Docker Hub tags
 
 ---
 
@@ -479,7 +486,9 @@ name: Java CI/CD Pipeline (Signed Images)
 on:
   push:
     branches: [ main ]
-    # NOTE: No paths-ignore needed! Pipeline never touches manifests.
+    paths-ignore:
+      - 'k8s/**'    # Ignore k8s config changes (prevents builds from Image Updater commits)
+      - '*.md'      # Ignore documentation changes
   pull_request:
     branches: [ main ]
 
@@ -610,6 +619,8 @@ metadata:
     # Only use tags matching main-* pattern
     argocd-image-updater.argoproj.io/app.update-strategy: newest-build
     argocd-image-updater.argoproj.io/app.allow-tags: regexp:^main-[a-f0-9]{7}$
+    # Docker Hub pull credentials (avoids rate limits)
+    argocd-image-updater.argoproj.io/app.pull-secret: pullsecret:argocd/dockerhub-creds
     # Write changes back to Git (optional but recommended)
     argocd-image-updater.argoproj.io/write-back-method: git
 spec:
@@ -662,6 +673,13 @@ spec:
       verifyImages:
         - imageReferences:
             - "docker.io/pranathinallamilli/java-demo-app:*"
+          mutateDigest: false      # Prevents OutOfSync (Kyverno won't mutate pod spec)
+          verifyDigest: false      # Skip digest verification (we use tag-based flow)
+          imageRegistryCredentials: # Docker Hub creds to avoid pull rate limits
+            secrets:
+              - docker-hub-creds
+              - docker-hub-creds-v2
+            allowInsecureRegistry: false
           attestors:
             - entries:
                 - keys:
@@ -674,7 +692,24 @@ spec:
 ```bash
 # Apply the policy
 kubectl apply -f k8s/kyverno-verify-images.yaml
+# Create Docker Hub credential secrets for Kyverno (to verify signatures without rate limits)
+kubectl create secret docker-registry docker-hub-creds -n kyverno \
+  --docker-server=https://index.docker.io/v1/ \
+  --docker-username=<DOCKER_USERNAME> \
+  --docker-password=<DOCKER_PASSWORD>
+kubectl annotate secret docker-hub-creds -n kyverno kyverno.io/docker-config=true
 
+kubectl create secret docker-registry docker-hub-creds-v2 -n kyverno \
+  --docker-server=https://registry-1.docker.io \
+  --docker-username=<DOCKER_USERNAME> \
+  --docker-password=<DOCKER_PASSWORD>
+kubectl annotate secret docker-hub-creds-v2 -n kyverno kyverno.io/docker-config=true
+
+# Create Docker Hub credential secret for Image Updater (to poll for new tags)
+kubectl create secret docker-registry dockerhub-creds -n argocd \
+  --docker-server=https://registry-1.docker.io \
+  --docker-username=<DOCKER_USERNAME> \
+  --docker-password=<DOCKER_PASSWORD>
 # Test: unsigned image will be REJECTED
 kubectl run test --image=pranathinallamilli/java-demo-app:latest
 # Error: image verification failed: signature not found
@@ -708,11 +743,217 @@ curl http://localhost:8081/
 
 ---
 
+## Why Is Trivy Scan After Docker Push (Not Before)?
+
+This is a deliberate design choice in the pipeline:
+
+```
+Build & Push Image → Trivy Scan → Cosign Sign
+```
+
+**Reason: Trivy needs the final multi-arch image to scan accurately.**
+
+| Order | Why This Way | What Happens |
+|-------|-------------|--------------|
+| **Push first** | `docker buildx` builds for `linux/amd64` + `linux/arm64` — the final manifest only exists on the registry after push | Trivy scans the real production image with all layers |
+| **Scan second** | Trivy scans the pushed image by pulling it from Docker Hub | Gets accurate CVE results for the exact artifact going to production |
+| **Sign last** | Only sign if Trivy passes (exit-code: 1 fails pipeline on CRITICAL/HIGH) | **Unsigned image = Kyverno blocks it** from running in the cluster |
+
+**The safety net:** If Trivy finds CRITICAL/HIGH CVEs → pipeline fails → image is **never signed** → Kyverno **blocks** it from deploying. So even though the image is already on Docker Hub, it can never reach your pods.
+
+**Why not scan before push?**
+- `docker buildx` with multi-platform builds doesn't produce a local image — it pushes directly to the registry
+- Scanning a local single-platform image misses CVEs in the other architecture
+- The registry image is the source of truth
+
+---
+
+## One-Time Cluster Setup (Complete Commands)
+
+> All the setup below is **one-time per cluster**. Same steps apply to EKS/AKS/GKE. After this, every new deployment is just a `git push`.
+
+### Prerequisites
+
+```bash
+# Install required tools (macOS)
+brew install kind kubectl podman cosign
+
+# For Linux
+# curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64 && chmod +x ./kind && mv ./kind /usr/local/bin/
+# curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+# brew install cosign  # or download from GitHub releases
+```
+
+### Step 1: Create the Cluster
+
+```bash
+# Use Podman as the container runtime (Docker also works)
+export KIND_EXPERIMENTAL_PROVIDER=podman
+
+# Create kind cluster config
+cat <<EOF > kind-cluster-config.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker
+EOF
+
+# Create the cluster
+kind create cluster --name java-demo-cluster --config kind-cluster-config.yaml
+
+# Verify
+kubectl cluster-info
+kubectl get nodes
+# Expected: 1 control-plane + 2 workers = 3 nodes
+```
+
+### Step 2: Install ArgoCD
+
+```bash
+kubectl create namespace argocd
+
+kubectl apply -n argocd \
+  -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+# Wait for all pods to be ready
+kubectl wait --for=condition=available --timeout=300s deployment/argocd-server -n argocd
+kubectl wait --for=condition=available --timeout=300s deployment/argocd-repo-server -n argocd
+
+# Get the admin password
+kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath="{.data.password}" | base64 -d
+echo ""
+
+# Access ArgoCD UI
+kubectl port-forward svc/argocd-server -n argocd 8443:443 &
+# https://localhost:8443 (admin / <password from above>)
+```
+
+### Step 3: Install ArgoCD Image Updater
+
+```bash
+# Install (use specific version — 'stable' URL returns 404)
+kubectl apply -n argocd \
+  -f https://raw.githubusercontent.com/argoproj-labs/argocd-image-updater/v0.14.0/manifests/install.yaml
+
+# Verify
+kubectl get pods -n argocd -l app.kubernetes.io/name=argocd-image-updater
+```
+
+### Step 4: Install Kyverno
+
+```bash
+kubectl create -f https://github.com/kyverno/kyverno/releases/download/v1.12.0/install.yaml
+
+# Wait for Kyverno to be ready
+kubectl wait --for=condition=available --timeout=300s deployment/kyverno-admission-controller -n kyverno
+
+# Verify all Kyverno pods
+kubectl get pods -n kyverno
+```
+
+### Step 5: Generate Cosign Key Pair
+
+```bash
+cosign generate-key-pair
+# Enter a password when prompted (e.g., demo123)
+# Creates: cosign.key (PRIVATE) and cosign.pub (PUBLIC)
+
+# Add to GitHub Secrets:
+#   COSIGN_PRIVATE_KEY = contents of cosign.key
+#   COSIGN_PASSWORD    = password you entered
+```
+
+### Step 6: Create All Credential Secrets
+
+```bash
+# --- ArgoCD namespace ---
+
+# Git repo credentials (for Image Updater git write-back)
+kubectl create secret generic repo-crd-poc -n argocd \
+  --from-literal=type=git \
+  --from-literal=url=https://github.com/<your-org>/<your-repo>.git \
+  --from-literal=username=<github-username> \
+  --from-literal=password=<github-pat>
+kubectl label secret repo-crd-poc -n argocd argocd.argoproj.io/secret-type=repository
+
+# Docker Hub credentials (for Image Updater to poll tags)
+kubectl create secret docker-registry dockerhub-creds -n argocd \
+  --docker-server=https://registry-1.docker.io \
+  --docker-username=<docker-username> \
+  --docker-password=<docker-password>
+
+# --- Kyverno namespace ---
+
+# Docker Hub credentials (for Kyverno to pull signatures during verification)
+kubectl create secret docker-registry docker-hub-creds -n kyverno \
+  --docker-server=https://index.docker.io/v1/ \
+  --docker-username=<docker-username> \
+  --docker-password=<docker-password>
+kubectl annotate secret docker-hub-creds -n kyverno kyverno.io/docker-config=true
+
+kubectl create secret docker-registry docker-hub-creds-v2 -n kyverno \
+  --docker-server=https://registry-1.docker.io \
+  --docker-username=<docker-username> \
+  --docker-password=<docker-password>
+kubectl annotate secret docker-hub-creds-v2 -n kyverno kyverno.io/docker-config=true
+
+# --- GitHub Secrets (in GitHub UI → Settings → Secrets → Actions) ---
+# DOCKER_USERNAME  = <docker-username>
+# DOCKER_PASSWORD  = <docker-password or access token>
+# COSIGN_PRIVATE_KEY = contents of cosign.key file
+# COSIGN_PASSWORD    = cosign key password
+```
+
+> **Why two Docker Hub secrets for Kyverno?** Docker Hub uses two registry URLs (`index.docker.io/v1/` and `registry-1.docker.io`). Different API calls hit different endpoints, so we provide both to avoid authentication failures.
+
+### Step 7: Deploy the Application
+
+```bash
+# Apply Kyverno signature verification policy
+kubectl apply -f k8s/platform/kyverno-verify-images.yaml
+
+# Deploy ArgoCD Application (with Image Updater annotations)
+kubectl apply -f k8s/platform/argocd-application-v2.yaml
+
+# Verify ArgoCD picked it up
+kubectl get application java-demo-app -n argocd
+```
+
+### Step 8: Verify the Setup
+
+```bash
+# All pods should be running
+kubectl get pods -n argocd        # ArgoCD + Image Updater
+kubectl get pods -n kyverno       # Kyverno
+kubectl get pods -n default       # Your app (3 replicas)
+
+# Check ArgoCD app status
+kubectl get application java-demo-app -n argocd -o jsonpath='Sync: {.status.sync.status}, Health: {.status.health.status}' && echo ""
+
+# Access the app
+kubectl port-forward svc/java-demo-app 8083:80 -n default &
+curl http://localhost:8083/
+```
+
+### Setup Summary
+
+| Component | Namespace | Purpose |
+|-----------|-----------|---------|
+| ArgoCD v3.3.6 | `argocd` | GitOps controller — syncs K8s manifests from Git |
+| Image Updater v0.14.0 | `argocd` | Watches Docker Hub for new tags → commits to Git |
+| Kyverno v1.12.0 | `kyverno` | Admission controller — blocks unsigned images |
+| Cosign keys | GitHub Secrets + Kyverno policy | Signs images in CI, verifies in cluster |
+| App (3 replicas) | `default` | Spring Boot API with ClusterIP service |
+
+---
+
 ## Security Architecture: 5 Layers of Protection
 
 | Layer | Tool | What It Does | When |
 |-------|------|-------------|------|
-| 1. Build | Trivy | Scans image for CVEs — **fails pipeline** if CRITICAL/HIGH found (exit-code: 1). Image stays unsigned → Kyverno blocks it. | During CI pipeline |
+| 1. Build | Trivy | Scans image for CVEs — **fails pipeline** if CRITICAL/HIGH found (exit-code: 1). Image stays unsigned → Kyverno blocks it. | During CI pipeline (after push, before sign) |
 | 2. Sign | Cosign | Creates cryptographic signature for image | After Docker push |
 | 3. Registry | Docker Hub IAM | Controls who can push/pull images | Always |
 | 4. Verify | Kyverno | Rejects unsigned images at K8s API level | Before pod creation |
@@ -764,7 +1005,7 @@ kind delete cluster --name java-demo-cluster
 
 ## Cloud/Production: One-Time Setup Per Cluster
 
-All the setup we did for kind (ArgoCD, Image Updater, Kyverno, Cosign, repo credentials) is **one-time per cluster**. Same steps apply to EKS/AKS/GKE.
+All the setup we did for kind (ArgoCD, Image Updater, Kyverno, Cosign, repo credentials, Docker Hub secrets) is **one-time per cluster**. Same steps apply to EKS/AKS/GKE. See the [One-Time Cluster Setup (Complete Commands)](#one-time-cluster-setup-complete-commands) section above for full details.
 
 | Step | Frequency | How in Production |
 |------|-----------|-------------------|
