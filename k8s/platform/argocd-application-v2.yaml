@@ -30,6 +30,7 @@ spec:
     - CreateNamespace=true
     - PrunePropagationPolicy=foreground
     - PruneLast=true
+    - RespectIgnoreDifferences=true
 
     retry:
       limit: 5

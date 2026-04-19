@@ -3,7 +3,8 @@ name: Java CI/CD Pipeline (Signed Images)
 on:
   push:
     branches: [ main ]
-    # No paths-ignore needed! Pipeline never touches manifests.
+    paths-ignore:
+      - 'k8s/.argocd-source*'    # Ignore Image Updater commits (prevents infinite loop)
   pull_request:
     branches: [ main ]
 
