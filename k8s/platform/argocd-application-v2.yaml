@@ -30,7 +30,6 @@ spec:
     - CreateNamespace=true
     - PrunePropagationPolicy=foreground
     - PruneLast=true
-    - RespectIgnoreDifferences=true
 
     retry:
       limit: 5
@@ -44,4 +43,3 @@ spec:
     kind: Deployment
     jsonPointers:
     - /spec/replicas
-    - /spec/template/spec/containers/0/image
