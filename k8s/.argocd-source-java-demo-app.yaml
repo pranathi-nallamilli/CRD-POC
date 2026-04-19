@@ -1,3 +1,3 @@
 kustomize:
   images:
-  - docker.io/pranathinallamilli/java-demo-app:main-c64b299
+  - docker.io/pranathinallamilli/java-demo-app:main-33ac0f8
