@@ -20,7 +20,7 @@ public class DemoApplication {
     @GetMapping("/")
     public Map<String, String> home() {
         Map<String, String> response = new HashMap<>();
-        response.put("message", "Zero Touch Deployment - v5.0!");
+        response.put("message", "Zero Touch Deployment - v6.0!");
         response.put("timestamp", LocalDateTime.now().toString());
         response.put("version", "5.0.0");
         return response;

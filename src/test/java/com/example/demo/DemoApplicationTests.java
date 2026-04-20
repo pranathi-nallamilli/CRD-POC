@@ -32,7 +32,7 @@ class DemoApplicationTests {
         
         assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
         assertThat(response.getBody()).containsKey("message");
-        assertThat(response.getBody().get("message")).isEqualTo("Zero Touch Deployment - v5.0!");
+        assertThat(response.getBody().get("message")).isEqualTo("Zero Touch Deployment - v6.0!");
     }
 
     @Test
