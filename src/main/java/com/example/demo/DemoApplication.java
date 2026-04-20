@@ -20,9 +20,9 @@ public class DemoApplication {
     @GetMapping("/")
     public Map<String, String> home() {
         Map<String, String> response = new HashMap<>();
-        response.put("message", "🚀 Live Demo - Fully Automated CI/CD Pipeline!");
+        response.put("message", "Review Board Demo - Code Reviewed & Approved!");
         response.put("timestamp", LocalDateTime.now().toString());
-        response.put("version", "2.0.0");
+        response.put("version", "3.0.0");
         return response;
     }
 
